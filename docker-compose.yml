@@ -1,0 +1,24 @@
+services:
+  order-alerter:
+    build: .
+    image: shopify-order-alerter:latest
+    container_name: shopify-order-alerter
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Container clock in NZT so `docker logs` timestamps line up with the
+      # store's day. Cron scheduling uses TIMEZONE explicitly regardless.
+      TZ: ${TIMEZONE:-Pacific/Auckland}
+    volumes:
+      - alerter-state:/data
+    # No ports. This service only makes outbound calls to Shopify, Discord
+    # and SMTP — nothing needs to reach it.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  alerter-state:
