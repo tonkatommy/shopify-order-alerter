@@ -35,6 +35,7 @@ const ORDERS_QUERY = `
           displayName
         }
         lineItems(first: 100) {
+          totalCount
           nodes {
             quantity
           }
