@@ -6,6 +6,7 @@
  * access token is expected to hold `read_orders` and nothing else.
  */
 
+import { getAccessToken, invalidateAccessToken } from './auth.js'
 import { config } from './config.js'
 import { info, warn } from './logger.js'
 
@@ -67,12 +68,41 @@ const ORDERS_QUERY = `
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
+ * Extracts the numeric resource id from a Shopify GraphQL GID.
+ *
+ * Admin URLs take the bare number, never the GID. Putting the full
+ * `gid://shopify/Order/1234` in the path produces a link that still *looks*
+ * plausible in an embed but 404s when tapped, so this is worth being explicit
+ * about rather than interpolating a field and hoping.
+ *
+ * @example
+ * extractNumericId('gid://shopify/Order/1234567890') // => '1234567890'
+ * extractNumericId('1234567890')                     // => '1234567890'
+ * extractNumericId(null)                             // => ''
+ * @param {string|number|null|undefined} gid - A GID, or an already-numeric id.
+ * @returns {string} The numeric id, or an empty string when none can be found.
+ */
+export const extractNumericId = (gid) => {
+  if (gid === null || gid === undefined) return ''
+  const raw = String(gid).trim()
+  if (raw === '') return ''
+  // Take the trailing numeric segment, ignoring any ?query suffix Shopify may
+  // append to a GID (e.g. gid://shopify/Order/123?namespace=x).
+  const match = raw.match(/(\d+)(?:\?.*)?$/)
+  return match ? match[1] : ''
+}
+
+/**
  * Builds the Shopify admin deep link for an order.
- * @param {string} legacyResourceId - Numeric order id.
+ *
+ * @example
+ * // storeHandle "tommy-tinkers", order gid://shopify/Order/1234567890
+ * // => "https://admin.shopify.com/store/tommy-tinkers/orders/1234567890"
+ * @param {string} orderId - Order GID or numeric id.
  * @returns {string} Absolute admin URL.
  */
-const buildAdminUrl = (legacyResourceId) =>
-  `https://admin.shopify.com/store/${config.shopify.storeHandle}/orders/${legacyResourceId}`
+export const buildAdminUrl = (orderId) =>
+  `https://admin.shopify.com/store/${config.shopify.storeHandle}/orders/${extractNumericId(orderId)}`
 
 /**
  * Normalises a raw GraphQL order node into the shape the rest of the app uses.
@@ -83,7 +113,9 @@ const normaliseOrder = (node) => {
   const lineItems = node.lineItems?.nodes ?? []
   return {
     id: node.id,
-    legacyResourceId: String(node.legacyResourceId ?? ''),
+    // Prefer the explicit field, but fall back to the GID so the admin link
+    // still resolves if legacyResourceId is ever absent from the response.
+    legacyResourceId: extractNumericId(node.legacyResourceId) || extractNumericId(node.id),
     name: node.name ?? 'Unknown order',
     createdAt: node.createdAt,
     // A guest checkout has no customer record attached, so displayName is null
@@ -91,29 +123,46 @@ const normaliseOrder = (node) => {
     customerName: node.customer?.displayName?.trim() || 'Unknown customer',
     totalAmount: node.currentTotalPriceSet?.shopMoney?.amount ?? '0',
     currencyCode: node.currentTotalPriceSet?.shopMoney?.currencyCode ?? config.alerting.currency,
-    lineItemCount: lineItems.length,
+    // totalCount is the true line item count; `nodes` is capped at the 100 we
+    // asked for, so it would under-report a very large order.
+    lineItemCount: node.lineItems?.totalCount ?? lineItems.length,
     itemQuantity: lineItems.reduce((sum, item) => sum + (item.quantity ?? 0), 0),
-    adminUrl: buildAdminUrl(node.legacyResourceId)
+    adminUrl: buildAdminUrl(node.legacyResourceId ?? node.id)
   }
 }
 
 /**
  * Issues a single GraphQL request against the Admin API.
+ *
+ * The token comes from the auth module on every call rather than from a static
+ * env var, because Dev Dashboard tokens expire roughly daily.
  * @param {string} query - GraphQL document.
  * @param {object} variables - Query variables.
+ * @param {boolean} [allowAuthRetry=true] - Whether a 401 may trigger one forced refresh.
  * @returns {Promise<object>} The `data` payload of the response.
  * @throws {Error} On transport failure, non-2xx status, or GraphQL errors.
  */
-const requestOnce = async (query, variables) => {
+const requestOnce = async (query, variables, allowAuthRetry = true) => {
   const url = `https://${config.shopify.shopDomain}/admin/api/${config.shopify.apiVersion}/graphql.json`
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': config.shopify.accessToken
+      'X-Shopify-Access-Token': await getAccessToken()
     },
     body: JSON.stringify({ query, variables })
   })
+
+  // A 401 means Shopify considers the token dead even though our expiry maths
+  // said otherwise — clock drift, or the token was revoked. Force one refresh
+  // and retry once. Deliberately inside a single network attempt so it does not
+  // consume the caller's backoff budget, and gated by `allowAuthRetry` so a
+  // genuinely bad client secret can't loop.
+  if (response.status === 401 && allowAuthRetry) {
+    invalidateAccessToken()
+    await getAccessToken({ forceRefresh: true })
+    return requestOnce(query, variables, false)
+  }
 
   if (!response.ok) {
     const body = await response.text().catch(() => '<unreadable body>')

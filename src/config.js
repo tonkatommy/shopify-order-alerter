@@ -78,9 +78,15 @@ const list = (name) =>
 const buildConfig = () => {
   const shopDomain = required('SHOPIFY_SHOP_DOMAIN').replace(/^https?:\/\//, '').replace(/\/+$/, '')
 
-  const handleOverride = (process.env.SHOPIFY_STORE_HANDLE ?? '').trim()
-  if (!/\.myshopify\.com$/i.test(shopDomain) && !handleOverride) {
-    throw new Error('SHOPIFY_SHOP_DOMAIN must be a *.myshopify.com domain (or set SHOPIFY_STORE_HANDLE for admin links)')
+  // Must be the myshopify domain, with no override escape hatch: the OAuth
+  // token endpoint is store-specific to that host, so a customer-facing domain
+  // like shop.tommytinkers.nz returns 401 on the token exchange itself. Failing
+  // here beats debugging an opaque 401 an hour later.
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shopDomain)) {
+    throw new Error(
+      `SHOPIFY_SHOP_DOMAIN must be your *.myshopify.com domain (e.g. tommy-tinkers.myshopify.com), got: ${shopDomain}. ` +
+        'A customer-facing domain will fail authentication.'
+    )
   }
 
   // The store handle is what admin.shopify.com uses in deep links, and it is
@@ -91,7 +97,11 @@ const buildConfig = () => {
     shopify: {
       shopDomain,
       storeHandle: optional('SHOPIFY_STORE_HANDLE', derivedHandle),
-      accessToken: required('SHOPIFY_ACCESS_TOKEN'),
+      // Dev Dashboard apps authenticate with a client credentials grant rather
+      // than a static shpat_ token — see src/auth.js. Both are required at boot
+      // so a missing credential fails here, not at the first API call an hour in.
+      clientId: required('SHOPIFY_CLIENT_ID'),
+      clientSecret: required('SHOPIFY_CLIENT_SECRET'),
       // Pinned to a dated version on purpose. Shopify deprecates versions on a
       // schedule; floating on "unstable" or "latest" means a silent breaking
       // change lands with no deploy of ours. Bump this one line deliberately.
