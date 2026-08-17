@@ -1,0 +1,12 @@
+# Secrets must never end up in an image layer.
+.env
+.env.*
+!.env.example
+
+node_modules
+npm-debug.log*
+.git
+.github
+data
+*.md
+!README.md

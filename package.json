@@ -1,0 +1,27 @@
+{
+  "name": "shopify-order-alerter",
+  "version": "1.0.0",
+  "description": "Polls the Shopify Admin API for unfulfilled orders and alerts via Discord webhook and daily email digest.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node src/index.js --once=check",
+    "digest": "node src/index.js --once=digest"
+  },
+  "keywords": [
+    "shopify",
+    "discord",
+    "alerts",
+    "fulfillment"
+  ],
+  "author": "Tommy Tinkers NZ",
+  "license": "MIT",
+  "dependencies": {
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.16"
+  }
+}
