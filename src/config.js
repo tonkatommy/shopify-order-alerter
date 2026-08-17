@@ -78,11 +78,15 @@ const list = (name) =>
 const buildConfig = () => {
   const shopDomain = required('SHOPIFY_SHOP_DOMAIN').replace(/^https?:\/\//, '').replace(/\/+$/, '')
 
+  const handleOverride = (process.env.SHOPIFY_STORE_HANDLE ?? '').trim()
+  if (!/\.myshopify\.com$/i.test(shopDomain) && !handleOverride) {
+    throw new Error('SHOPIFY_SHOP_DOMAIN must be a *.myshopify.com domain (or set SHOPIFY_STORE_HANDLE for admin links)')
+  }
+
   // The store handle is what admin.shopify.com uses in deep links, and it is
   // the subdomain of the *.myshopify.com domain — derive it so there is one
   // less variable to get wrong, but allow an override for odd stores.
   const derivedHandle = shopDomain.replace(/\.myshopify\.com$/i, '')
-
   return {
     shopify: {
       shopDomain,
