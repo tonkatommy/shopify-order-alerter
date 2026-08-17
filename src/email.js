@@ -17,8 +17,8 @@ let transporter = null
 /**
  * Lazily creates the shared nodemailer transport.
  *
- * Created once and reused so nodemailer can pool the SMTP connection instead of
- * reconnecting for each daily send.
+ * Created once and reused so we don't rebuild transport configuration on every send.
+ * (SMTP connection pooling is only enabled if you set nodemailer `pool: true`.)
  * @returns {import('nodemailer').Transporter} The SMTP transport.
  */
 const getTransporter = () => {
