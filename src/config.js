@@ -111,7 +111,15 @@ const buildConfig = () => {
       to: list('EMAIL_TO')
     },
     alerting: {
-      thresholdHours: numeric('ALERT_THRESHOLD_HOURS', 48),
+      thresholdHours: (() => {
+        const raw = (process.env.ALERT_THRESHOLD_HOURS ?? '').trim()
+        if (!raw) return 48
+        const parsed = Number(raw)
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          throw new Error(`Environment variable ALERT_THRESHOLD_HOURS must be a non-negative number, got: ${raw}`)
+        }
+        return parsed
+      })(),
       timezone: optional('TIMEZONE', 'Pacific/Auckland'),
       currency: optional('CURRENCY', 'NZD'),
       checkCron: optional('CHECK_CRON', '0 * * * *'),
