@@ -110,8 +110,9 @@ const buildHtmlBody = (orders, now) => {
 
   const rows = orders
     .map((order) => {
-      const age = humanizeAge(ageInHours(order.createdAt, now))
-      const overdue = ageInHours(order.createdAt, now) > config.alerting.thresholdHours
+      const ageHours = ageInHours(order.createdAt, now)
+      const age = humanizeAge(ageHours)
+      const overdue = ageHours > config.alerting.thresholdHours
       return `<tr>
         <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-weight:600;">
           <a href="${escapeHtml(order.adminUrl)}" style="color:#0f172a;text-decoration:none;">${escapeHtml(order.name)}</a>
